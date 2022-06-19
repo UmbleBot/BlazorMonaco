@@ -1,18 +1,26 @@
 ﻿@implements IDisposable
+@using System.Dynamic
 @using Microsoft.JSInterop
 @using System.Text.Json
+@using System.Text.Json.Serialization
 
 @code {
+
     [Parameter]
     public string Id { get; set; }
 
     [Parameter]
     public string CssClass { get; set; }
 
-    [Parameter] public EventCallback<MonacoEditorBase> OnDidDispose { get; set; }
-    [Parameter] public EventCallback<MonacoEditorBase> OnDidInit { get; set; }
+    [Parameter]
+    public EventCallback<MonacoEditorBase> OnDidDispose { get; set; }
 
-    [Inject] protected IJSRuntime jsRuntime { get; set; }
+    [Parameter]
+    public EventCallback<MonacoEditorBase> OnDidInit { get; set; }
+
+    [Inject]
+    protected IJSRuntime jsRuntime { get; set; }
+
     protected static IJSRuntime staticJsRuntime { get; set; }
     protected DotNetObjectReference<MonacoEditorBase> jsObjectRef { get; set; }
     private Dictionary<string, Action<MonacoEditorBase, int[]>> actions { get; set; } = new Dictionary<string, Action<MonacoEditorBase, int[]>>();
@@ -57,7 +65,9 @@
     {
         switch (eventName)
         {
-            case "OnDidDispose": await OnDidDispose.InvokeAsync(this); break;
+            case "OnDidDispose":
+                await OnDidDispose.InvokeAsync(this);
+                break;
         }
     }
 
@@ -77,6 +87,7 @@
     }
 
     protected Func<int, string> LineNumbersLambda { get; set; }
+
     [JSInvokable]
     public string LineNumbersCallback(int lineNumber)
     {
@@ -119,7 +130,7 @@
             };
         }
 
-        // Convert the options object into a JsonElement to get rid of the properties with null values
+    // Convert the options object into a JsonElement to get rid of the properties with null values
         var optionsJson = JsonSerializer.Serialize(options, new JsonSerializerOptions
         {
             IgnoreNullValues = true,
@@ -127,7 +138,7 @@
         });
         var optionsDict = JsonSerializer.Deserialize<JsonElement>(optionsJson);
 
-        // Create the editor
+    // Create the editor
         await staticJsRuntime.InvokeVoidAsync("blazorMonaco.editor.create", id, optionsDict, jsObjectRef);
     }
 
@@ -143,7 +154,7 @@
             };
         }
 
-        // Convert the options object into a JsonElement to get rid of the properties with null values
+    // Convert the options object into a JsonElement to get rid of the properties with null values
         var optionsJson = JsonSerializer.Serialize(options, new JsonSerializerOptions
         {
             IgnoreNullValues = true,
@@ -151,7 +162,7 @@
         });
         var optionsDict = JsonSerializer.Deserialize<JsonElement>(optionsJson);
 
-        // Create the editor
+    // Create the editor
         await staticJsRuntime.InvokeVoidAsync("blazorMonaco.editor.createDiffEditor", id, optionsDict, jsObjectRef);
     }
 
@@ -504,5 +515,79 @@
         await staticJsRuntime.InvokeVoidAsync("blazorMonaco.languages.registerCompletionItemProvider", language, DotNetObjectReference.Create(new CompletionItemProvider(func)));
     }
 
+    public static async Task CreateLanguage(MonarchLanguage language)
+    {
+        if (staticJsRuntime == null)
+            return;
+
+        await staticJsRuntime.InvokeVoidAsync("blazorMonaco.languages.register", language);
+    }
+
+    public static async Task SetMonarchTokensProvider(string language, MonarchLanguageRules monarchLanguageRules)
+    {
+        if (staticJsRuntime == null)
+            return;
+
+        var newRoots = new List<List<dynamic>>();
+
+        foreach (var root in monarchLanguageRules.Tokenizer.Root)
+        {
+            switch (root.Token.Value)
+            {
+                case string value:
+                    newRoots.Add(new()
+                    {
+                        $"{root.Pattern}", value
+                    });
+                    break;
+                case CaseToken value:
+                    var cases = value.Cases.ToDictionary(@case => @case.Type, @case => @case.Token);
+
+                    newRoots.Add(new()
+                    {
+                        $"{root.Pattern}", new
+                        {
+                            cases
+                        }
+                    });
+                    break;
+                case ConditionToken value:
+                    dynamic obj = new ExpandoObject();
+
+                    if (!string.IsNullOrEmpty(value.Token))
+                        obj.token = value.Token;
+
+                    if (!string.IsNullOrEmpty(value.Bracket))
+                        obj.bracket = value.Bracket;
+
+                    if (!string.IsNullOrEmpty(value.Log))
+                        obj.log = value.Log;
+
+                    if (!string.IsNullOrEmpty(value.Next))
+                        obj.next = value.Next;
+
+                    newRoots.Add(new()
+                    {
+                        $"{root.Pattern}", obj
+                    });
+                    break;
+            }
+
+            var newMonarchLanguageRules = new
+            {
+                keywords = monarchLanguageRules.Keywords,
+                typeKeywords = monarchLanguageRules.TypeKeywords,
+                operators = monarchLanguageRules.Operators,
+                tokenizer = new
+                {
+                    root = newRoots
+                }
+            };
+
+            await staticJsRuntime.InvokeVoidAsync("blazorMonaco.languages.setMonarchTokensProvider", language, newMonarchLanguageRules);
+        }
+
     #endregion
+    }
+
 }

@@ -902,6 +902,14 @@ window.blazorMonaco.languages = {
                 });
             }
         });
+    },
+
+    register: function (language) {
+        monaco.languages.register(language);
+    },
+    
+    setMonarchTokensProvider: function (language, monarchLanguage) {
+        monaco.languages.setMonarchTokensProvider(language, monarchLanguage);
     }
 
     //#endregion
